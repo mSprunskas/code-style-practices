@@ -41,6 +41,7 @@ rules here, but never over the design rules.
     + [Honest nullability](#honest-nullability)
     + [Optional and nullable arguments](#optional-and-nullable-arguments)
     + [Type hint the narrowest interface](#type-hint-the-narrowest-interface)
+    + [Accept the narrowest arguments](#accept-the-narrowest-arguments)
     + [Fluent interfaces](#fluent-interfaces)
     + [Types in public library APIs](#types-in-public-library-apis)
   * [Comments](#comments)
@@ -500,6 +501,40 @@ new ReportExporter(resultNormalizer, resultNormalizer);
 
 > **Why?** Narrow dependencies make it possible to swap implementations, and show the real usages when an
 > interface changes.
+
+### Accept the narrowest arguments
+
+A method accepts only the data it actually uses. If it needs a single property, it takes that property, not the
+whole object holding it.
+
+```ts
+// Wrong: only the email is used
+sendWelcomeEmail(user: User): void {
+    this.mailer.send(user.getEmail(), this.welcomeTemplate);
+}
+
+// Correct
+sendWelcomeEmail(email: Email): void {
+    this.mailer.send(email, this.welcomeTemplate);
+}
+
+// Wrong: only the transferred amount is used
+calculateFee(transfer: Transfer): Money {
+    return transfer.getAmount().multiply(this.feeRate);
+}
+
+// Correct
+calculateFee(amount: Money): Money {
+    return amount.multiply(this.feeRate);
+}
+```
+
+This does not apply to values that belong together (`Money`, not a separate amount and currency) or to identifiers:
+a method that needs an entity takes the entity, not its ID, see
+[objects, not identifiers](#objects-not-identifiers-inside-business-logic).
+
+> **Why?** The signature shows exactly what the method depends on, it can be reused with data from other sources,
+> and tests do not need to build whole objects.
 
 ### Fluent interfaces
 
@@ -1106,6 +1141,9 @@ at the last moment. Business logic only works with domain objects.
 Business classes receive resolved objects (`Transfer`), not IDs (`transferId`). Resolution by ID happens at the input
 layer. If an object is not found, the input layer responds with "not found" (`404`) or a specific validation error
 (`400`).
+
+If a method uses only some properties of the object, it takes those properties instead, see
+[accept the narrowest arguments](#accept-the-narrowest-arguments).
 
 ### One representation per concept
 
