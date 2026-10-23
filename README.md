@@ -479,6 +479,7 @@ class Order {
 
 - Optional arguments have a default value.
 - A nullable but required argument is passed explicitly: `entity.setValue(null)`, never `entity.setValue()`.
+- Setters accept `null` only when there is a use case for resetting the value, see [entities](#entities).
 
 ### Type hint the narrowest interface
 
@@ -818,6 +819,9 @@ If a parent constructor must be called, it is the first statement.
 - No `setId`: an entity is either new or loaded.
 - Setters return `this` for a fluent interface (where the language idiom allows).
 - Setters replace the value; adders (`add*`) append to a collection.
+- Entity and DTO setters accept `null` only if there is a use case to reset an already set value back to `null`.
+  A property, its getter or its database column can be nullable while the setter is not: when a value is empty,
+  the setter is simply not called.
 - The owning side of a relation keeps both sides in sync: `add*` also sets the back reference, and `set*` for a
   collection clears it and calls `add*` for each item.
 - No `updatedAt` unless something really needs "time of any change" (for example synchronising to another storage).
@@ -1328,9 +1332,9 @@ class Product {
     private priceAmount: string | null;
     private priceCurrency: string | null;
 
-    setPrice(price: Money | null): this {
-        this.priceAmount = price === null ? null : price.getAmount();
-        this.priceCurrency = price === null ? null : price.getCurrency();
+    setPrice(price: Money): this {
+        this.priceAmount = price.getAmount();
+        this.priceCurrency = price.getCurrency();
         return this;
     }
 
