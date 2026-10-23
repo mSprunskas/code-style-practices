@@ -11,31 +11,56 @@ rules here, but never over the design rules.
 
 ## Table of contents
 
+**General**
+
 - [Basics](#basics)
+
+**Code style**
+
 - [Naming](#naming)
 - [Types](#types)
 - [Comments](#comments)
-- [Global state and dependencies](#global-state-and-dependencies)
-- [Configuration](#configuration)
-- [Transactions and persistence](#transactions-and-persistence)
 - [Expressions and control flow](#expressions-and-control-flow)
 - [Variables](#variables)
 - [Classes and visibility](#classes-and-visibility)
 - [Errors and exceptions](#errors-and-exceptions)
+- [Formatting](#formatting)
+- [Static analysis and warnings](#static-analysis-and-warnings)
+
+**Architecture and design**
+
+- [Global state and dependencies](#global-state-and-dependencies)
 - [Data representation](#data-representation)
 - [Changing state and events](#changing-state-and-events)
+
+**Persistence**
+
+- [Transactions and persistence](#transactions-and-persistence)
+- [Database](#database)
+
+**Entry points and APIs**
+
 - [Controllers, commands and workers](#controllers-commands-and-workers)
 - [REST APIs](#rest-apis)
-- [Database](#database)
+
+**Security**
+
 - [Sensitive values](#sensitive-values)
+
+**Project setup and maintenance**
+
+- [Configuration](#configuration)
 - [Directory structure](#directory-structure)
 - [Working with legacy code](#working-with-legacy-code)
 - [Libraries, versioning and dependencies](#libraries-versioning-and-dependencies)
-- [Formatting](#formatting)
-- [Static analysis and warnings](#static-analysis-and-warnings)
+
+**Other**
+
 - [Acknowledgements](#acknowledgements)
 
 ---
+
+# General
 
 ## Basics
 
@@ -76,6 +101,8 @@ not from scratch.
 > libraries rely on.
 
 ---
+
+# Code style
 
 ## Naming
 
@@ -461,343 +488,6 @@ Deprecated code is marked with the language's deprecation mechanism (`@deprecate
 
 ---
 
-## Global state and dependencies
-
-### No global access
-
-We do not use or access:
-
-- global variables and global constants;
-- global mutable state, singletons and `getInstance()`;
-- service locators or containers fetched inside business code;
-- free global functions that hide dependencies (time, randomness, environment, file system, network);
-- environment variables read directly from business code.
-
-Everything a class needs comes through its constructor. Time, randomness and configuration are dependencies too
-(inject a `Clock`, a `RandomGenerator`, configuration values).
-
-```ts
-// Wrong
-class InvoiceNumberGenerator {
-    generate(): string {
-        const prefix = process.env.INVOICE_PREFIX;
-        const year = new Date().getFullYear();
-        return prefix + year + Database.getInstance().nextSequence();
-    }
-}
-
-// Correct
-class InvoiceNumberGenerator {
-    constructor(
-        private readonly prefix: string,
-        private readonly clock: Clock,
-        private readonly sequenceProvider: SequenceProvider,
-    ) {}
-
-    generate(): string {
-        return this.prefix + this.clock.now().year + this.sequenceProvider.next();
-    }
-}
-```
-
-> **Why?** Hidden dependencies make behaviour unpredictable, tests require global setup, and nobody can see
-> what influences the result.
-
-### Static methods
-
-We avoid static methods with logic. Allowed: named constructors on value objects, pure functions without
-dependencies, and framework-required cases (test data providers). Never static access to stateful collaborators.
-
-### Dependency injection
-
-- Objects with behaviour are created only by the dependency injection container or dedicated factories.
-- We do not create collaborators inside other classes (`new Mailer()` in a constructor).
-- We prefer constructor injection. No setter injection for mandatory dependencies.
-- We prefer the fully qualified class name as the service ID. Custom IDs, where used, start with the module name.
-- Expensive services that are not always used (repositories, CLI commands) are configured as lazy.
-- Autowiring and autoconfiguration are allowed in new projects. We do not enable them in existing projects that are
-  configured explicitly.
-
-> **Why?** Turning on autowiring in an explicitly configured project silently changes how services are resolved and
-> can override explicit definitions.
-
-### No dynamic service lookup
-
-We never build service IDs, class names or configuration keys dynamically (`container.get('provider.' + type)`).
-Implementations are registered explicitly in a registry, through container tags or explicit configuration.
-
-```ts
-// Wrong
-const provider = this.container.get(`payment.${type}.provider`);
-
-// Correct
-class PaymentProviderRegistry {
-    private providers: Map<string, PaymentProvider>;
-
-    constructor() {
-        this.providers = new Map();
-    }
-
-    addProvider(provider: PaymentProvider, type: string): this {
-        this.providers.set(type, provider);
-        return this;
-    }
-
-    getProvider(type: string): PaymentProvider {
-        const provider = this.providers.get(type);
-        if (provider === undefined) {
-            throw new UnknownPaymentTypeException(type);
-        }
-        return provider;
-    }
-}
-```
-
-> **Why?** Dynamic IDs cannot be found by search, are not checked to exist or to implement the interface, cannot be
-> configured individually, and the full list of available types is unknown.
-
-### Stateless services
-
-Once configured, a service does not change its behaviour at run-time. Run-time data is passed as method arguments,
-not stored in properties between calls.
-
-```ts
-// Wrong
-class ManagerSearch {
-    private name: string;
-    setManagerName(name: string): this { this.name = name; return this; }
-    search(): Result[] { ... }
-}
-
-// Correct
-class ManagerSearch {
-    search(managerName: string): Result[] { ... }
-}
-```
-
-Exception: classes whose primary purpose is collecting state (for example buffering events to dispatch at the end of
-a request).
-
-> **Why?** A service that unintentionally becomes context-aware behaves like a global: it has side effects that are
-> hard to find, debug and test.
-
-### Configuration over hard-coding
-
-We configure reusable objects instead of writing near-duplicate classes with hard-coded parameters.
-See [constants or configuration](#constants-or-configuration).
-
-### Composition over inheritance
-
-We inject collaborators instead of extending base classes with abstract methods. We do not use traits, mixins or
-similar code-sharing mechanisms in production code (test code is the exception).
-
-> **Why?** Two abstract methods with two implementations each require four subclasses. Composition requires four
-> small classes with no duplication, each testable on its own.
-
-### Module dependencies
-
-- No unnecessary dependencies between modules.
-- No circular dependencies between modules.
-- Abstractions never depend on their implementations.
-- We do not use another module's repositories directly. We go through a class that module exposes.
-
-> **Why?** Even if that class only forwards calls at first, it gives one place to add filtering, other dependencies
-> or caching later without touching every caller.
-
----
-
-## Configuration
-
-### Constants or configuration
-
-Values that rarely change are **constants** in the class they belong to:
-
-- the value is the same in all environments;
-- it is domain-specific and belongs to a class;
-- tests do not need to override it.
-
-```ts
-class Post {
-    static readonly MAX_TITLE_LENGTH = 255;
-    static readonly ITEMS_PER_PAGE = 10;
-}
-```
-
-Values become **injected configuration** only when:
-
-- they differ per environment or come from environment variables;
-- tests need a different value (shorter timeouts, smaller thresholds);
-- the same value is shared by several service definitions.
-
-We do not move static values into the container configuration just to inject them.
-
-> **Why?** Constants are checked by the compiler, supported by the IDE, and live next to the code using them.
-
-### Configuration format and location
-
-- We prefer configuration formats that are explicit and schema-validated, so mistakes are caught early.
-- Service wiring is kept separate from business logic where the framework allows it. One class may be configured as
-  several services with different arguments.
-- Large configuration is split into files by type (`services/controllers`, `services/repositories`,
-  `services/normalizers`, `routing/...`) and imported from the main file.
-- Modules expose semantic (typed, validated) configuration options. Environment-specific values are set by the
-  application, not hard-coded inside modules.
-- Implementation class names are written directly in service definitions, not hidden in parameters. To change an
-  implementation we override the service by its ID.
-
-### Example configuration files
-
-- Distribution/example files keep the original extension: `parameters.dist.yaml`, `.env.dist`, so tools still
-  recognise the format.
-- Default values are for the **development** environment and must work out of the box for any developer with the
-  standard environment setup. Default passwords are a trivial placeholder like `pass`.
-- Production values are never used as defaults.
-- Application-level parameters that are only passed into a module's configuration do not use that module's internal
-  prefix, so they cannot clash with the module's own parameters.
-
-### Secrets
-
-No secrets in the repository: no private keys, passwords, tokens or shared secret strings. They are provided by the
-environment, a secrets manager or files ignored by version control.
-
----
-
-## Transactions and persistence
-
-### Transactions only in the top layer
-
-Database transactions (`begin`/`commit`, `flush`, `save` with auto-commit, `@Transactional`, unit-of-work commit)
-are controlled **only in the upper layer** of the application, the entry points:
-
-- HTTP controllers / request handlers;
-- CLI commands;
-- queue workers / message consumers / job handlers;
-- schedulers / cron entry points;
-- **processors** (see below).
-
-Business classes (managers, validators, providers, listeners, repositories) **never** begin, commit or roll back
-transactions and never flush.
-
-```ts
-// Wrong: business class commits
-class TransferManager {
-    accept(transfer: Transfer): void {
-        transfer.setStatus(Transfer.STATUS_ACCEPTED);
-        this.entityManager.flush();
-    }
-}
-
-// Correct: entry point owns the transaction
-class TransferManager {
-    accept(transfer: Transfer): void {
-        this.assertPending(transfer);
-        transfer.setStatus(Transfer.STATUS_ACCEPTED);
-        this.eventDispatcher.dispatch(TransferEvents.TRANSFER_ACCEPTED, new TransferEvent(transfer));
-    }
-}
-
-class AcceptTransferController {
-    accept(transfer: Transfer): Response {
-        this.transferManager.accept(transfer);
-        this.entityManager.flush();
-        return this.responseFactory.noContent();
-    }
-}
-```
-
-> **Why?** Entry points run once per request, command or message, so they know the full unit of work.
-> Lower-level classes are reused in many combinations; if one of them commits, a caller ends up with a half-saved
-> state that cannot be rolled back.
-
-### One commit per unit of work
-
-We commit once per request, command execution or message. Several commits are allowed only when intermediate state
-must be persisted, typically around calls to remote systems.
-
-### Processors
-
-Classes that commit (directly or through any dependency at any depth) live in a dedicated `Processor` namespace and
-are named `*Processor`. This makes it explicit to callers that calling them persists changes.
-
-```ts
-// namespace App/Payment/Processor
-class PaymentProcessor {
-    process(payment: Payment): void {
-        const remotePayment = this.paymentGatewayClient.create(payment);
-        payment.setRemoteId(remotePayment.id);
-        this.entityManager.flush();
-
-        this.paymentGatewayClient.confirm(payment);
-        payment.setStatus(Payment.STATUS_DONE);
-        this.entityManager.flush();
-    }
-}
-```
-
-### Queries only in repositories
-
-- We build queries only inside repositories. No query builders or raw SQL in controllers or business classes.
-- Callers use purpose-specific repository methods, not generic `findBy({...})` from outside.
-- Find by ID with the dedicated `find(id)` method (it uses the ORM identity map / cache).
-  Exception: a custom method that also preloads relations.
-
-> **Why?** All queries in one place show which indexes are needed, and adding a common constraint (for example
-> soft-deleted rows) requires changing one class.
-
-### Repository method naming
-
-| Prefix                 | Returns                          |
-|------------------------|----------------------------------|
-| `findOneBy*`           | one entity or `null`             |
-| `findBy*`              | list of entities                 |
-| `findCountBy*`, etc.   | scalar result                    |
-| `getQueryBuilderFor*`  | query builder (e.g. for pagination) |
-
-### Repository return types
-
-A repository returns only instances of its own entity, or scalar values.
-
-If module B (which depends on module A) needs a query returning A's entities filtered by B's data, the query lives in
-a repository **inside module B**, not in A's repository. Otherwise A would depend on B.
-
-### Repositories are injected
-
-Repositories are injected through the constructor, never fetched from an entity manager or container at run-time.
-
-### Do not prefetch and filter by the same relation
-
-With an ORM identity map, if we eagerly load a relation and filter by it in the same query, the loaded entities keep
-the **filtered** collection, also for later code that loads the same entity.
-
-```ts
-// Wrong: users get only their active emails, and stay that way in the identity map
-queryBuilder
-    .select('user, email')
-    .leftJoin('user.emails', 'email')
-    .where('email.status = :activeStatus');
-```
-
-Instead, either:
-
-1. do not prefetch the relation (`select('user')`);
-2. join the relation twice: once for prefetching, once (with a different alias) for filtering;
-3. select only the needed scalar fields and build a result DTO.
-
-Prefetching relations we use is recommended; only combining it with filtering on the same join is wrong.
-
-### Date ranges
-
-Date periods are **inclusive at the start and exclusive at the end**: `createdAt >= from AND createdAt < to`.
-If the UI shows inclusive end dates, the frontend maps them to this convention.
-
-> **Why?** No adding or subtracting a second, and consecutive periods never overlap or leave gaps.
-
-### Pagination
-
-We prefer cursor-based pagination over offset-based.
-
----
-
 ## Expressions and control flow
 
 ### Strict comparison
@@ -1101,6 +791,201 @@ this.update(user);
 
 ---
 
+## Formatting
+
+Use the language's standard formatter where one exists. Where it leaves room for choice:
+
+- **Trailing commas** in multi-line lists, arguments and parameters, if the language allows them.
+- **One item per line** once a list is split.
+- **Operators at the beginning** of continuation lines (`&&`, `||`, `+`).
+- **Split conditions fully**: if a condition is split, each part is on its own line, including the first and the
+  closing parenthesis.
+- **One chained call per line** in fluent chains.
+- **Four-space indentation** per nesting level, never double indentation.
+- **Imports** instead of fully qualified names, also in doc comments.
+- **Simple string literals** use the plain quote style; double quotes or escapes only when needed. No variable
+  interpolation in strings, use formatting or concatenation explicitly.
+- **Always call constructors with parentheses**: `new Value()`.
+- **Short collection literals** (`[1, 2]`) where the language has them.
+
+```ts
+const allowed = (
+    user.isActive()
+    && (user.isAdmin() || user.isOwner(document))
+);
+
+const result = queryBuilder
+    .join('transfer.payer', 'payer')
+    .where('payer.id = :payerId')
+    .setParameter('payerId', payerId)
+    .getResult();
+
+const methods = [
+    'card',
+    'bank_transfer',
+    'wallet',
+];
+```
+
+> **Why?** Every item on its own line is easy to scan, reorder and diff.
+
+---
+
+## Static analysis and warnings
+
+- No compiler, linter, analyser or IDE warnings in committed code.
+- Suppressions are allowed only for analyser bugs or third-party code, at the narrowest scope, with a reason.
+- Inline type assertions/casts are a last resort, used only when the type cannot be fixed at its source.
+
+---
+
+# Architecture and design
+
+## Global state and dependencies
+
+### No global access
+
+We do not use or access:
+
+- global variables and global constants;
+- global mutable state, singletons and `getInstance()`;
+- service locators or containers fetched inside business code;
+- free global functions that hide dependencies (time, randomness, environment, file system, network);
+- environment variables read directly from business code.
+
+Everything a class needs comes through its constructor. Time, randomness and configuration are dependencies too
+(inject a `Clock`, a `RandomGenerator`, configuration values).
+
+```ts
+// Wrong
+class InvoiceNumberGenerator {
+    generate(): string {
+        const prefix = process.env.INVOICE_PREFIX;
+        const year = new Date().getFullYear();
+        return prefix + year + Database.getInstance().nextSequence();
+    }
+}
+
+// Correct
+class InvoiceNumberGenerator {
+    constructor(
+        private readonly prefix: string,
+        private readonly clock: Clock,
+        private readonly sequenceProvider: SequenceProvider,
+    ) {}
+
+    generate(): string {
+        return this.prefix + this.clock.now().year + this.sequenceProvider.next();
+    }
+}
+```
+
+> **Why?** Hidden dependencies make behaviour unpredictable, tests require global setup, and nobody can see
+> what influences the result.
+
+### Static methods
+
+We avoid static methods with logic. Allowed: named constructors on value objects, pure functions without
+dependencies, and framework-required cases (test data providers). Never static access to stateful collaborators.
+
+### Dependency injection
+
+- Objects with behaviour are created only by the dependency injection container or dedicated factories.
+- We do not create collaborators inside other classes (`new Mailer()` in a constructor).
+- We prefer constructor injection. No setter injection for mandatory dependencies.
+- We prefer the fully qualified class name as the service ID. Custom IDs, where used, start with the module name.
+- Expensive services that are not always used (repositories, CLI commands) are configured as lazy.
+- Autowiring and autoconfiguration are allowed in new projects. We do not enable them in existing projects that are
+  configured explicitly.
+
+> **Why?** Turning on autowiring in an explicitly configured project silently changes how services are resolved and
+> can override explicit definitions.
+
+### No dynamic service lookup
+
+We never build service IDs, class names or configuration keys dynamically (`container.get('provider.' + type)`).
+Implementations are registered explicitly in a registry, through container tags or explicit configuration.
+
+```ts
+// Wrong
+const provider = this.container.get(`payment.${type}.provider`);
+
+// Correct
+class PaymentProviderRegistry {
+    private providers: Map<string, PaymentProvider>;
+
+    constructor() {
+        this.providers = new Map();
+    }
+
+    addProvider(provider: PaymentProvider, type: string): this {
+        this.providers.set(type, provider);
+        return this;
+    }
+
+    getProvider(type: string): PaymentProvider {
+        const provider = this.providers.get(type);
+        if (provider === undefined) {
+            throw new UnknownPaymentTypeException(type);
+        }
+        return provider;
+    }
+}
+```
+
+> **Why?** Dynamic IDs cannot be found by search, are not checked to exist or to implement the interface, cannot be
+> configured individually, and the full list of available types is unknown.
+
+### Stateless services
+
+Once configured, a service does not change its behaviour at run-time. Run-time data is passed as method arguments,
+not stored in properties between calls.
+
+```ts
+// Wrong
+class ManagerSearch {
+    private name: string;
+    setManagerName(name: string): this { this.name = name; return this; }
+    search(): Result[] { ... }
+}
+
+// Correct
+class ManagerSearch {
+    search(managerName: string): Result[] { ... }
+}
+```
+
+Exception: classes whose primary purpose is collecting state (for example buffering events to dispatch at the end of
+a request).
+
+> **Why?** A service that unintentionally becomes context-aware behaves like a global: it has side effects that are
+> hard to find, debug and test.
+
+### Configuration over hard-coding
+
+We configure reusable objects instead of writing near-duplicate classes with hard-coded parameters.
+See [constants or configuration](#constants-or-configuration).
+
+### Composition over inheritance
+
+We inject collaborators instead of extending base classes with abstract methods. We do not use traits, mixins or
+similar code-sharing mechanisms in production code (test code is the exception).
+
+> **Why?** Two abstract methods with two implementations each require four subclasses. Composition requires four
+> small classes with no duplication, each testable on its own.
+
+### Module dependencies
+
+- No unnecessary dependencies between modules.
+- No circular dependencies between modules.
+- Abstractions never depend on their implementations.
+- We do not use another module's repositories directly. We go through a class that module exposes.
+
+> **Why?** Even if that class only forwards calls at first, it gives one place to add filtering, other dependencies
+> or caching later without touching every caller.
+
+---
+
 ## Data representation
 
 ### Objects over primitives
@@ -1199,34 +1084,141 @@ TextModule:   TextBlock { block, textId }, TextBlockProvider implements BlockPro
 
 ---
 
-## Controllers, commands and workers
+# Persistence
 
-- Entry points are thin: resolve input, call business classes, commit, build the response.
-- Small controllers: one controller per resource, at most 5–8 actions. Single-action controllers are fine.
-- Controllers, commands and workers are registered as services with constructor-injected dependencies; no container
-  access inside them.
-- Pages without logic are routed directly to a static template, without a controller.
-- The controller passes raw data to the view or serializer; it does not pre-encode it (for example to JSON) for the
-  template.
-- We prefer a static frontend with a REST API over server-side rendered templates.
+## Transactions and persistence
 
-> **Why small controllers?** With constructor injection, big controllers have many dependencies that are rarely used
-> together.
+### Transactions only in the top layer
 
----
+Database transactions (`begin`/`commit`, `flush`, `save` with auto-commit, `@Transactional`, unit-of-work commit)
+are controlled **only in the upper layer** of the application, the entry points:
 
-## REST APIs
+- HTTP controllers / request handlers;
+- CLI commands;
+- queue workers / message consumers / job handlers;
+- schedulers / cron entry points;
+- **processors** (see below).
 
-- Controller methods receive denormalized domain objects and return entities, result objects or scalars. They do not
-  read the raw request.
-- Normalizers/serializers per class convert between domain objects and API representation; the response normalizer is
-  selected by the returned type.
-- Lists are returned as result objects that carry items and pagination data.
-- The server-side model does not use subclasses for API variants; related data lives in separate entities and
-  services. Clients may model it however suits them.
-- Permissions are checked in controllers (access to a resource) and/or request listeners (access to the API), using
-  dedicated voters/policies.
-- Pagination is cursor-based.
+Business classes (managers, validators, providers, listeners, repositories) **never** begin, commit or roll back
+transactions and never flush.
+
+```ts
+// Wrong: business class commits
+class TransferManager {
+    accept(transfer: Transfer): void {
+        transfer.setStatus(Transfer.STATUS_ACCEPTED);
+        this.entityManager.flush();
+    }
+}
+
+// Correct: entry point owns the transaction
+class TransferManager {
+    accept(transfer: Transfer): void {
+        this.assertPending(transfer);
+        transfer.setStatus(Transfer.STATUS_ACCEPTED);
+        this.eventDispatcher.dispatch(TransferEvents.TRANSFER_ACCEPTED, new TransferEvent(transfer));
+    }
+}
+
+class AcceptTransferController {
+    accept(transfer: Transfer): Response {
+        this.transferManager.accept(transfer);
+        this.entityManager.flush();
+        return this.responseFactory.noContent();
+    }
+}
+```
+
+> **Why?** Entry points run once per request, command or message, so they know the full unit of work.
+> Lower-level classes are reused in many combinations; if one of them commits, a caller ends up with a half-saved
+> state that cannot be rolled back.
+
+### One commit per unit of work
+
+We commit once per request, command execution or message. Several commits are allowed only when intermediate state
+must be persisted, typically around calls to remote systems.
+
+### Processors
+
+Classes that commit (directly or through any dependency at any depth) live in a dedicated `Processor` namespace and
+are named `*Processor`. This makes it explicit to callers that calling them persists changes.
+
+```ts
+// namespace App/Payment/Processor
+class PaymentProcessor {
+    process(payment: Payment): void {
+        const remotePayment = this.paymentGatewayClient.create(payment);
+        payment.setRemoteId(remotePayment.id);
+        this.entityManager.flush();
+
+        this.paymentGatewayClient.confirm(payment);
+        payment.setStatus(Payment.STATUS_DONE);
+        this.entityManager.flush();
+    }
+}
+```
+
+### Queries only in repositories
+
+- We build queries only inside repositories. No query builders or raw SQL in controllers or business classes.
+- Callers use purpose-specific repository methods, not generic `findBy({...})` from outside.
+- Find by ID with the dedicated `find(id)` method (it uses the ORM identity map / cache).
+  Exception: a custom method that also preloads relations.
+
+> **Why?** All queries in one place show which indexes are needed, and adding a common constraint (for example
+> soft-deleted rows) requires changing one class.
+
+### Repository method naming
+
+| Prefix                 | Returns                          |
+|------------------------|----------------------------------|
+| `findOneBy*`           | one entity or `null`             |
+| `findBy*`              | list of entities                 |
+| `findCountBy*`, etc.   | scalar result                    |
+| `getQueryBuilderFor*`  | query builder (e.g. for pagination) |
+
+### Repository return types
+
+A repository returns only instances of its own entity, or scalar values.
+
+If module B (which depends on module A) needs a query returning A's entities filtered by B's data, the query lives in
+a repository **inside module B**, not in A's repository. Otherwise A would depend on B.
+
+### Repositories are injected
+
+Repositories are injected through the constructor, never fetched from an entity manager or container at run-time.
+
+### Do not prefetch and filter by the same relation
+
+With an ORM identity map, if we eagerly load a relation and filter by it in the same query, the loaded entities keep
+the **filtered** collection, also for later code that loads the same entity.
+
+```ts
+// Wrong: users get only their active emails, and stay that way in the identity map
+queryBuilder
+    .select('user, email')
+    .leftJoin('user.emails', 'email')
+    .where('email.status = :activeStatus');
+```
+
+Instead, either:
+
+1. do not prefetch the relation (`select('user')`);
+2. join the relation twice: once for prefetching, once (with a different alias) for filtering;
+3. select only the needed scalar fields and build a result DTO.
+
+Prefetching relations we use is recommended; only combining it with filtering on the same join is wrong.
+
+### Date ranges
+
+Date periods are **inclusive at the start and exclusive at the end**: `createdAt >= from AND createdAt < to`.
+If the UI shows inclusive end dates, the frontend maps them to this convention.
+
+> **Why?** No adding or subtracting a second, and consecutive periods never overlap or leave gaps.
+
+### Pagination
+
+We prefer cursor-based pagination over offset-based.
 
 ---
 
@@ -1300,6 +1292,41 @@ We avoid ORM inheritance mapping (single/joined table inheritance). See
 
 ---
 
+# Entry points and APIs
+
+## Controllers, commands and workers
+
+- Entry points are thin: resolve input, call business classes, commit, build the response.
+- Small controllers: one controller per resource, at most 5–8 actions. Single-action controllers are fine.
+- Controllers, commands and workers are registered as services with constructor-injected dependencies; no container
+  access inside them.
+- Pages without logic are routed directly to a static template, without a controller.
+- The controller passes raw data to the view or serializer; it does not pre-encode it (for example to JSON) for the
+  template.
+- We prefer a static frontend with a REST API over server-side rendered templates.
+
+> **Why small controllers?** With constructor injection, big controllers have many dependencies that are rarely used
+> together.
+
+---
+
+## REST APIs
+
+- Controller methods receive denormalized domain objects and return entities, result objects or scalars. They do not
+  read the raw request.
+- Normalizers/serializers per class convert between domain objects and API representation; the response normalizer is
+  selected by the returned type.
+- Lists are returned as result objects that carry items and pagination data.
+- The server-side model does not use subclasses for API variants; related data lives in separate entities and
+  services. Clients may model it however suits them.
+- Permissions are checked in controllers (access to a resource) and/or request listeners (access to the API), using
+  dedicated voters/policies.
+- Pagination is cursor-based.
+
+---
+
+# Security
+
 ## Sensitive values
 
 Passwords, tokens, secret codes and any security-relevant values:
@@ -1312,6 +1339,64 @@ Passwords, tokens, secret codes and any security-relevant values:
   original as cause;
 - are kept in private properties with `SensitiveValue` getters and setters when an entity must hold them;
 - are stored hashed when only comparison is needed. Plain values are stored only when the original must be used again.
+
+---
+
+# Project setup and maintenance
+
+## Configuration
+
+### Constants or configuration
+
+Values that rarely change are **constants** in the class they belong to:
+
+- the value is the same in all environments;
+- it is domain-specific and belongs to a class;
+- tests do not need to override it.
+
+```ts
+class Post {
+    static readonly MAX_TITLE_LENGTH = 255;
+    static readonly ITEMS_PER_PAGE = 10;
+}
+```
+
+Values become **injected configuration** only when:
+
+- they differ per environment or come from environment variables;
+- tests need a different value (shorter timeouts, smaller thresholds);
+- the same value is shared by several service definitions.
+
+We do not move static values into the container configuration just to inject them.
+
+> **Why?** Constants are checked by the compiler, supported by the IDE, and live next to the code using them.
+
+### Configuration format and location
+
+- We prefer configuration formats that are explicit and schema-validated, so mistakes are caught early.
+- Service wiring is kept separate from business logic where the framework allows it. One class may be configured as
+  several services with different arguments.
+- Large configuration is split into files by type (`services/controllers`, `services/repositories`,
+  `services/normalizers`, `routing/...`) and imported from the main file.
+- Modules expose semantic (typed, validated) configuration options. Environment-specific values are set by the
+  application, not hard-coded inside modules.
+- Implementation class names are written directly in service definitions, not hidden in parameters. To change an
+  implementation we override the service by its ID.
+
+### Example configuration files
+
+- Distribution/example files keep the original extension: `parameters.dist.yaml`, `.env.dist`, so tools still
+  recognise the format.
+- Default values are for the **development** environment and must work out of the box for any developer with the
+  standard environment setup. Default passwords are a trivial placeholder like `pass`.
+- Production values are never used as defaults.
+- Application-level parameters that are only passed into a module's configuration do not use that module's internal
+  prefix, so they cannot clash with the module's own parameters.
+
+### Secrets
+
+No secrets in the repository: no private keys, passwords, tokens or shared secret strings. They are provided by the
+environment, a secrets manager or files ignored by version control.
 
 ---
 
@@ -1489,53 +1574,7 @@ stable, we start at `1.0.0`.
 
 ---
 
-## Formatting
-
-Use the language's standard formatter where one exists. Where it leaves room for choice:
-
-- **Trailing commas** in multi-line lists, arguments and parameters, if the language allows them.
-- **One item per line** once a list is split.
-- **Operators at the beginning** of continuation lines (`&&`, `||`, `+`).
-- **Split conditions fully**: if a condition is split, each part is on its own line, including the first and the
-  closing parenthesis.
-- **One chained call per line** in fluent chains.
-- **Four-space indentation** per nesting level, never double indentation.
-- **Imports** instead of fully qualified names, also in doc comments.
-- **Simple string literals** use the plain quote style; double quotes or escapes only when needed. No variable
-  interpolation in strings, use formatting or concatenation explicitly.
-- **Always call constructors with parentheses**: `new Value()`.
-- **Short collection literals** (`[1, 2]`) where the language has them.
-
-```ts
-const allowed = (
-    user.isActive()
-    && (user.isAdmin() || user.isOwner(document))
-);
-
-const result = queryBuilder
-    .join('transfer.payer', 'payer')
-    .where('payer.id = :payerId')
-    .setParameter('payerId', payerId)
-    .getResult();
-
-const methods = [
-    'card',
-    'bank_transfer',
-    'wallet',
-];
-```
-
-> **Why?** Every item on its own line is easy to scan, reorder and diff.
-
----
-
-## Static analysis and warnings
-
-- No compiler, linter, analyser or IDE warnings in committed code.
-- Suppressions are allowed only for analyser bugs or third-party code, at the narrowest scope, with a reason.
-- Inline type assertions/casts are a last resort, used only when the type cannot be fixed at its source.
-
----
+# Other
 
 ## Acknowledgements
 
