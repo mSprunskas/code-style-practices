@@ -80,6 +80,7 @@ rules here, but never over the design rules.
   * [Errors and exceptions](#errors-and-exceptions)
     + [Throwing](#throwing)
     + [Catching](#catching)
+    + [Exceptions per abstraction layer](#exceptions-per-abstraction-layer)
   * [Formatting](#formatting)
   * [Static analysis and warnings](#static-analysis-and-warnings)
 - [Architecture and design](#architecture-and-design)
@@ -92,6 +93,7 @@ rules here, but never over the design rules.
     + [Configuration over hard-coding](#configuration-over-hard-coding)
     + [Composition over inheritance](#composition-over-inheritance)
     + [Module dependencies](#module-dependencies)
+    + [Third-party code](#third-party-code)
   * [Data representation](#data-representation)
     + [Objects over primitives](#objects-over-primitives)
     + [Normalize early, denormalize late](#normalize-early-denormalize-late)
@@ -949,6 +951,54 @@ this.update(user);
 
 > **Why?** A broad catch assumes one of hundreds of possible failures happened and hides the real ones.
 
+### Exceptions per abstraction layer
+
+Business classes throw their own exceptions. They never throw exceptions that belong to an outer, presentation layer,
+such as exceptions of a REST API library or framework HTTP exceptions (`ApiException`, `NotFoundHttpException`,
+`ConflictHttpException`). Mapping our exceptions to such exceptions, status codes or error responses happens only in
+the layer that owns that representation: a controller, an exception listener or the API library's exception mapping.
+
+Exceptions of libraries used for the class's own work, for example an HTTP client used to call a remote system, may
+propagate from business classes as they are.
+
+```ts
+// Wrong: manager throws an exception of the REST API library
+class AccountManager {
+    close(account: Account): void {
+        if (account.hasPendingTransfers()) {
+            throw new ApiException('pending_transfers', 'Account has pending transfers', 409);
+        }
+        this.bankApiClient.closeAccount(account.getIban());
+        account.setStatus(Account.STATUS_CLOSED);
+    }
+}
+
+// Correct: manager throws its own exception, the API layer maps it
+class AccountManager {
+    close(account: Account): void {
+        if (account.hasPendingTransfers()) {
+            throw new AccountHasPendingTransfersException(account);
+        }
+        this.bankApiClient.closeAccount(account.getIban());
+        account.setStatus(Account.STATUS_CLOSED);
+    }
+}
+
+class ApiExceptionMapper {
+    map(exception: Error): ApiException | null {
+        if (exception instanceof AccountHasPendingTransfersException) {
+            return new ApiException('pending_transfers', 'Account has pending transfers', 409);
+        }
+        return null;
+    }
+}
+```
+
+> **Why?** The same manager is used from a controller, a CLI command or a worker. In a controller an API exception
+> would be mapped to a response out of the box, but in a command it means nothing: it is handled as a general error
+> with a confusing context (HTTP status codes and API error codes in a CLI run). A domain exception can be handled
+> correctly by every caller, each in its own way.
+
 ---
 
 ## Formatting
@@ -1143,6 +1193,20 @@ similar code-sharing mechanisms in production code (test code is the exception).
 
 > **Why?** Even if that class only forwards calls at first, it gives one place to add filtering, other dependencies
 > or caching later without touching every caller.
+
+### Third-party code
+
+We depend on third-party code only where it is needed for the class's job.
+
+- Using a library for the work the class does is fine: an HTTP client to call a remote API, an ORM in repositories,
+  a PDF library in a PDF generator.
+- Business classes do not depend on libraries of outer layers. REST API libraries, request and response classes,
+  framework HTTP exceptions and similar are used only in controllers, listeners and other entry points.
+  See [exceptions per abstraction layer](#exceptions-per-abstraction-layer).
+- We do not add a library for what a few lines of our own code or the standard library already do.
+
+> **Why?** Business classes stay usable from any entry point, and libraries can be upgraded or replaced without
+> touching business code.
 
 ---
 
