@@ -33,6 +33,7 @@ rules here, but never over the design rules.
 - [Libraries, versioning and dependencies](#libraries-versioning-and-dependencies)
 - [Formatting](#formatting)
 - [Static analysis and warnings](#static-analysis-and-warnings)
+- [Acknowledgements](#acknowledgements)
 
 ---
 
