@@ -1533,3 +1533,10 @@ const methods = [
 - No compiler, linter, analyser or IDE warnings in committed code.
 - Suppressions are allowed only for analyser bugs or third-party code, at the narrowest scope, with a reason.
 - Inline type assertions/casts are a last resort, used only when the type cannot be fixed at its source.
+
+---
+
+## Acknowledgements
+
+This guide is based on the [Paysera PHP Style Guide](https://github.com/paysera/php-style-guide).
+Its conventions were generalized to apply to backend code in any programming language.
