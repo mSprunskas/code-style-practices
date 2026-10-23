@@ -159,8 +159,11 @@ rules here, but never over the design rules.
 
 ### Legacy code
 
-When modifying legacy code that follows other conventions, we may keep the style already used there.
-New files and new modules always follow this guide.
+Any new code follows this guide, also when it is added to legacy code that uses other conventions. We do not copy
+the old style into new methods, classes or files just to match the surrounding code.
+
+> **Why?** Every change then leaves the codebase a bit better, and legacy code improves over time instead of
+> growing in its old style.
 
 ### One type per file
 
