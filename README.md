@@ -11,52 +11,144 @@ rules here, but never over the design rules.
 
 ## Table of contents
 
-**General**
+<!-- toc -->
 
-- [Basics](#basics)
+- [General](#general)
+  * [Basics](#basics)
+    + [Legacy code](#legacy-code)
+    + [One type per file](#one-type-per-file)
+    + [Small, understandable units](#small-understandable-units)
+    + [Language and runtime versions](#language-and-runtime-versions)
+    + [Framework versions](#framework-versions)
+    + [New projects](#new-projects)
+- [Code style](#code-style)
+  * [Naming](#naming)
+    + [Full names](#full-names)
+    + [Classes are nouns](#classes-are-nouns)
+    + [No `Service` suffix](#no-service-suffix)
+    + [Application names](#application-names)
+    + [Interface naming](#interface-naming)
+    + [Properties are nouns or adjectives](#properties-are-nouns-or-adjectives)
+    + [Methods are verbs; questions return booleans](#methods-are-verbs-questions-return-booleans)
+    + [Constants](#constants)
+    + [Events and listeners](#events-and-listeners)
+    + [Routes and CLI commands](#routes-and-cli-commands)
+    + [Namespaces, packages, modules](#namespaces-packages-modules)
+  * [Types](#types)
+    + [Strict types over documentation](#strict-types-over-documentation)
+    + [One type per return value and argument](#one-type-per-return-value-and-argument)
+    + [Nothing means nothing](#nothing-means-nothing)
+    + [Honest nullability](#honest-nullability)
+    + [Optional and nullable arguments](#optional-and-nullable-arguments)
+    + [Type hint the narrowest interface](#type-hint-the-narrowest-interface)
+    + [Fluent interfaces](#fluent-interfaces)
+    + [Types in public library APIs](#types-in-public-library-apis)
+  * [Comments](#comments)
+    + [No AI-generated comments](#no-ai-generated-comments)
+    + [Prefer code over comments](#prefer-code-over-comments)
+    + [No duplicated documentation](#no-duplicated-documentation)
+    + [Comment styles](#comment-styles)
+    + [No metadata comments](#no-metadata-comments)
+    + [No commented-out code](#no-commented-out-code)
+    + [Deprecations](#deprecations)
+  * [Expressions and control flow](#expressions-and-control-flow)
+    + [Strict comparison](#strict-comparison)
+    + [Explicit `null` checks](#explicit-null-checks)
+    + [No conversion to boolean](#no-conversion-to-boolean)
+    + [No comparison to boolean literals](#no-comparison-to-boolean-literals)
+    + [Static value on the right](#static-value-on-the-right)
+    + [Return boolean expressions directly](#return-boolean-expressions-directly)
+    + [No assignments in conditions](#no-assignments-in-conditions)
+    + [Check things explicitly](#check-things-explicitly)
+    + [No aliases](#no-aliases)
+    + [Removing prefixes and suffixes](#removing-prefixes-and-suffixes)
+    + [No unnecessary structures](#no-unnecessary-structures)
+    + [Logical operators](#logical-operators)
+  * [Variables](#variables)
+    + [No unnecessary variables](#no-unnecessary-variables)
+    + [No reuse of variables](#no-reuse-of-variables)
+  * [Classes and visibility](#classes-and-visibility)
+    + [Most restrictive visibility](#most-restrictive-visibility)
+    + [No public mutable properties](#no-public-mutable-properties)
+    + [Defaults in the constructor](#defaults-in-the-constructor)
+    + [Parent constructor first](#parent-constructor-first)
+    + [Member order](#member-order)
+    + [String conversion](#string-conversion)
+    + [Entities](#entities)
+  * [Errors and exceptions](#errors-and-exceptions)
+    + [Throwing](#throwing)
+    + [Catching](#catching)
+  * [Formatting](#formatting)
+  * [Static analysis and warnings](#static-analysis-and-warnings)
+- [Architecture and design](#architecture-and-design)
+  * [Global state and dependencies](#global-state-and-dependencies)
+    + [No global access](#no-global-access)
+    + [Static methods](#static-methods)
+    + [Dependency injection](#dependency-injection)
+    + [No dynamic service lookup](#no-dynamic-service-lookup)
+    + [Stateless services](#stateless-services)
+    + [Configuration over hard-coding](#configuration-over-hard-coding)
+    + [Composition over inheritance](#composition-over-inheritance)
+    + [Module dependencies](#module-dependencies)
+  * [Data representation](#data-representation)
+    + [Objects over primitives](#objects-over-primitives)
+    + [Normalize early, denormalize late](#normalize-early-denormalize-late)
+    + [Objects, not identifiers, inside business logic](#objects-not-identifiers-inside-business-logic)
+    + [One representation per concept](#one-representation-per-concept)
+  * [Changing state and events](#changing-state-and-events)
+    + [State changes in dedicated classes](#state-changes-in-dedicated-classes)
+    + [Concrete methods over generic ones](#concrete-methods-over-generic-ones)
+    + [Selecting implementations at run-time](#selecting-implementations-at-run-time)
+    + [Extending entities without inheritance](#extending-entities-without-inheritance)
+    + [Events notify, they do not command](#events-notify-they-do-not-command)
+- [Persistence](#persistence)
+  * [Transactions and persistence](#transactions-and-persistence)
+    + [Transactions only in the top layer](#transactions-only-in-the-top-layer)
+    + [One commit per unit of work](#one-commit-per-unit-of-work)
+    + [Queries only in repositories](#queries-only-in-repositories)
+    + [Repository method naming](#repository-method-naming)
+    + [Repository return types](#repository-return-types)
+    + [Repositories are injected](#repositories-are-injected)
+    + [Do not prefetch and filter by the same relation](#do-not-prefetch-and-filter-by-the-same-relation)
+    + [Date ranges](#date-ranges)
+    + [Pagination](#pagination)
+  * [Database](#database)
+    + [Naming](#naming-1)
+    + [Columns](#columns)
+    + [IDs](#ids)
+    + [Money in the database](#money-in-the-database)
+    + [Mapping](#mapping)
+    + [Migrations](#migrations)
+- [Entry points and APIs](#entry-points-and-apis)
+  * [Controllers, commands and workers](#controllers-commands-and-workers)
+  * [REST APIs](#rest-apis)
+- [Security](#security)
+  * [Sensitive values](#sensitive-values)
+- [Project setup and maintenance](#project-setup-and-maintenance)
+  * [Configuration](#configuration)
+    + [Constants or configuration](#constants-or-configuration)
+    + [Configuration format and location](#configuration-format-and-location)
+    + [Example configuration files](#example-configuration-files)
+    + [Secrets](#secrets)
+  * [Directory structure](#directory-structure)
+    + [Module layout](#module-layout)
+    + [Integration namespaces](#integration-namespaces)
+    + [Tests](#tests)
+    + [Example](#example)
+  * [Working with legacy code](#working-with-legacy-code)
+    + [New features in new code](#new-features-in-new-code)
+    + [Current code and legacy code](#current-code-and-legacy-code)
+    + [Interfaces and adapters](#interfaces-and-adapters)
+  * [Libraries, versioning and dependencies](#libraries-versioning-and-dependencies)
+    + [Semantic versioning](#semantic-versioning)
+    + [Changelog](#changelog)
+    + [Releases](#releases)
+    + [Version constraints on our libraries](#version-constraints-on-our-libraries)
+    + [Version constraints on third-party dependencies](#version-constraints-on-third-party-dependencies)
+- [Other](#other)
+  * [Acknowledgements](#acknowledgements)
 
-**Code style**
-
-- [Naming](#naming)
-- [Types](#types)
-- [Comments](#comments)
-- [Expressions and control flow](#expressions-and-control-flow)
-- [Variables](#variables)
-- [Classes and visibility](#classes-and-visibility)
-- [Errors and exceptions](#errors-and-exceptions)
-- [Formatting](#formatting)
-- [Static analysis and warnings](#static-analysis-and-warnings)
-
-**Architecture and design**
-
-- [Global state and dependencies](#global-state-and-dependencies)
-- [Data representation](#data-representation)
-- [Changing state and events](#changing-state-and-events)
-
-**Persistence**
-
-- [Transactions and persistence](#transactions-and-persistence)
-- [Database](#database)
-
-**Entry points and APIs**
-
-- [Controllers, commands and workers](#controllers-commands-and-workers)
-- [REST APIs](#rest-apis)
-
-**Security**
-
-- [Sensitive values](#sensitive-values)
-
-**Project setup and maintenance**
-
-- [Configuration](#configuration)
-- [Directory structure](#directory-structure)
-- [Working with legacy code](#working-with-legacy-code)
-- [Libraries, versioning and dependencies](#libraries-versioning-and-dependencies)
-
-**Other**
-
-- [Acknowledgements](#acknowledgements)
+<!-- tocstop -->
 
 ---
 
@@ -149,7 +241,7 @@ For classes that do work, we use a suffix that describes the role, usually an ag
 | `Normalizer`  | Converts objects to raw structures (and `Denormalizer` back) |
 | `Validator`   | Validates                                               |
 | `Updater`     | Updates something                                       |
-| `Processor`   | Runs a multi-step process, may commit transactions      |
+| `Processor`   | Runs a multi-step process                               |
 | `Registry`    | Holds a collection of implementations, selects one      |
 | `Factory`     | Creates objects                                         |
 | `Client`      | Talks to an external system                             |
@@ -1096,11 +1188,10 @@ are controlled **only in the upper layer** of the application, the entry points:
 - HTTP controllers / request handlers;
 - CLI commands;
 - queue workers / message consumers / job handlers;
-- schedulers / cron entry points;
-- **processors** (see below).
+- schedulers / cron entry points.
 
-Business classes (managers, validators, providers, listeners, repositories) **never** begin, commit or roll back
-transactions and never flush.
+Business classes (managers, processors, validators, providers, listeners, repositories) **never** begin, commit or
+roll back transactions and never flush.
 
 ```ts
 // Wrong: business class commits
@@ -1136,27 +1227,7 @@ class AcceptTransferController {
 ### One commit per unit of work
 
 We commit once per request, command execution or message. Several commits are allowed only when intermediate state
-must be persisted, typically around calls to remote systems.
-
-### Processors
-
-Classes that commit (directly or through any dependency at any depth) live in a dedicated `Processor` namespace and
-are named `*Processor`. This makes it explicit to callers that calling them persists changes.
-
-```ts
-// namespace App/Payment/Processor
-class PaymentProcessor {
-    process(payment: Payment): void {
-        const remotePayment = this.paymentGatewayClient.create(payment);
-        payment.setRemoteId(remotePayment.id);
-        this.entityManager.flush();
-
-        this.paymentGatewayClient.confirm(payment);
-        payment.setStatus(Payment.STATUS_DONE);
-        this.entityManager.flush();
-    }
-}
-```
+must be persisted, typically around calls to remote systems. These commits are also made in the entry point.
 
 ### Queries only in repositories
 
@@ -1413,7 +1484,7 @@ Entity/       entities, value objects, DTOs
 Event/        event classes
 Listener/     event listeners
 Normalizer/   normalizers / serializers
-Processor/    classes that commit transactions
+Processor/    multi-step processes
 Repository/   repositories
 Service/      main business classes of the module
 Worker/       queue consumers / job handlers
