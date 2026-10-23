@@ -71,6 +71,7 @@ rules here, but never over the design rules.
   * [Classes and visibility](#classes-and-visibility)
     + [Most restrictive visibility](#most-restrictive-visibility)
     + [No public mutable properties](#no-public-mutable-properties)
+    + [No magic methods](#no-magic-methods)
     + [Defaults in the constructor](#defaults-in-the-constructor)
     + [Parent constructor first](#parent-constructor-first)
     + [Member order](#member-order)
@@ -806,6 +807,31 @@ Prefer immutable bindings (`const`, `final`, `val`, `readonly`) by default.
 
 We do not expose mutable public fields. Public **read-only** properties are allowed for DTOs and value objects.
 We do not use magic accessors or dynamic properties; every property is declared.
+
+### No magic methods
+
+We do not use magic methods or language hooks that are called implicitly instead of by name: `__invoke`, `__call`,
+`__callStatic`, `__get`, `__set` in PHP, `__call__`, `__getattr__` in Python, `operator fun invoke` in Kotlin,
+`Proxy` traps in JavaScript and similar. Every behaviour is a regular method with a name describing what it does.
+
+```ts
+// Wrong
+class InvoiceSender {
+    __invoke(invoice: Invoice): void { ... }
+}
+invoiceSender(invoice);
+
+// Correct
+class InvoiceSender {
+    send(invoice: Invoice): void { ... }
+}
+invoiceSender.send(invoice);
+```
+
+Constructors are not affected. For string conversion see [string conversion](#string-conversion).
+
+> **Why?** A call like `invoiceSender(invoice)` does not say what happens, and the IDE cannot reliably resolve,
+> navigate to or find usages of implicitly called methods, so refactoring and static analysis get weaker.
 
 ### Defaults in the constructor
 
